@@ -11,10 +11,20 @@ import {
   Icon,
   Input,
   Image,
+  Popup,
+  Table,
   Loader
 } from 'semantic-ui-react'
 
-import { createTodo, deleteTodo, getTodos, patchTodo } from '../api/todos-api'
+import {
+  createTodo,
+  deleteTodo,
+  download,
+  getDownloadUrl,
+  getTodos,
+  patchTodo,
+  removeAttachment,
+} from "../api/todos-api";
 import Auth from '../auth/Auth'
 import { Todo } from '../types/Todo'
 
@@ -44,28 +54,95 @@ export class Todos extends React.PureComponent<TodosProps, TodosState> {
     this.props.history.push(`/todos/${todoId}/edit`)
   }
 
+  onRemoveAttachmentButtonClick = async (todo: Todo) => {
+    try {
+      const todoId = todo.todoId;
+      if (todo.attachmentUrl) {
+        const attachmentUrl = todo.attachmentUrl;
+        const attachmentUrlParts = attachmentUrl.split("/");
+        const length = attachmentUrlParts.length;
+        const s3Key = `${attachmentUrlParts[length - 2]}/${
+          attachmentUrlParts[length - 1]
+        }`;
+        await removeAttachment(this.props.auth.getIdToken(), todoId, s3Key);
+        //
+        let updatedTodos: Todo[] = [];
+        this.state.todos.forEach(function (todo) {
+          if (todo.todoId === todoId) {
+            todo.attachmentUrl = "";
+            updatedTodos.push(todo);
+          } else {
+            updatedTodos.push(todo);
+          }
+        });
+        this.setState({
+          todos: updatedTodos,
+        });
+      }
+    } catch (error) {
+      console.log("Failed to remove attachment..!");
+    }
+  };
+
+  onDownloadAttachment = async (todoId: string) => {
+    const todo = this.state.todos.find((todo) => todo.todoId === todoId);
+    if (todo?.attachmentUrl) {
+      const attachmentUrl = todo.attachmentUrl;
+      const attachmentUrlParts = attachmentUrl.split("/");
+      const length = attachmentUrlParts.length;
+      const s3Key = `${attachmentUrlParts[length - 2]}/${
+        attachmentUrlParts[length - 1]
+      }`;
+
+      const downloadUrl = await getDownloadUrl(
+        this.props.auth.getIdToken(),
+        s3Key
+      );
+      download(attachmentUrl, attachmentUrlParts[length - 1]);
+    }
+  };
+
   onTodoCreate = async (event: React.ChangeEvent<HTMLButtonElement>) => {
     try {
-      const dueDate = this.calculateDueDate()
+      const dueDate = this.calculateDueDate();
+    if (this.state.newTodoName.length > 0) {
       const newTodo = await createTodo(this.props.auth.getIdToken(), {
         name: this.state.newTodoName,
-        dueDate
-      })
+        dueDate,
+      });
       this.setState({
         todos: [...this.state.todos, newTodo],
         newTodoName: ''
       })
+      } else {
+        alert("Task name can't be empty");
+      }
     } catch {
       alert('Todo creation failed')
     }
   }
 
-  onTodoDelete = async (todoId: string) => {
+  onTodoDelete = async (todo: Todo) => {
     try {
-      await deleteTodo(this.props.auth.getIdToken(), todoId)
-      this.setState({
-        todos: this.state.todos.filter(todo => todo.todoId !== todoId)
-      })
+      const todoId = todo.todoId;
+      if (todo?.attachmentUrl) {
+        const attachmentUrl = todo.attachmentUrl;
+        const attachmentUrlParts = attachmentUrl.split("/");
+        const length = attachmentUrlParts.length;
+        const s3Key = `${attachmentUrlParts[length - 2]}/${
+          attachmentUrlParts[length - 1]
+        }`; 
+        // await deleteTodo(this.props.auth.getIdToken(), todoId, s3Key);
+        await deleteTodo(this.props.auth.getIdToken(), todoId);
+        this.setState({
+          todos: this.state.todos.filter((todo) => todo.todoId !== todoId),
+        });
+      } else {
+        await deleteTodo(this.props.auth.getIdToken(), todoId);
+        this.setState({
+          todos: this.state.todos.filter((todo) => todo.todoId !== todoId),
+        });
+      }
     } catch {
       alert('Todo deletion failed')
     }
@@ -105,10 +182,8 @@ export class Todos extends React.PureComponent<TodosProps, TodosState> {
     return (
       <div>
         <Header as="h1">TODOs</Header>
-
         {this.renderCreateTodoInput()}
-
-        {this.renderTodos()}
+        {this.state.todos.length > 0 && this.renderTodos()}
       </div>
     )
   }
@@ -158,51 +233,102 @@ export class Todos extends React.PureComponent<TodosProps, TodosState> {
 
   renderTodosList() {
     return (
-      <Grid padded>
-        {this.state.todos.map((todo, pos) => {
-          return (
-            <Grid.Row key={todo.todoId}>
-              <Grid.Column width={1} verticalAlign="middle">
-                <Checkbox
-                  onChange={() => this.onTodoCheck(pos)}
-                  checked={todo.done}
-                />
-              </Grid.Column>
-              <Grid.Column width={10} verticalAlign="middle">
-                {todo.name}
-              </Grid.Column>
-              <Grid.Column width={3} floated="right">
-                {todo.dueDate}
-              </Grid.Column>
-              <Grid.Column width={1} floated="right">
-                <Button
-                  icon
-                  color="blue"
-                  onClick={() => this.onEditButtonClick(todo.todoId)}
-                >
-                  <Icon name="pencil" />
-                </Button>
-              </Grid.Column>
-              <Grid.Column width={1} floated="right">
-                <Button
-                  icon
-                  color="red"
-                  onClick={() => this.onTodoDelete(todo.todoId)}
-                >
-                  <Icon name="delete" />
-                </Button>
-              </Grid.Column>
-              {todo.attachmentUrl && (
-                <Image src={todo.attachmentUrl} size="small" wrapped />
-              )}
-              <Grid.Column width={16}>
-                <Divider />
-              </Grid.Column>
-            </Grid.Row>
-          )
-        })}
-      </Grid>
-    )
+      <Table celled padded>
+        <Table.Header>
+          <Table.Row>
+            <Table.HeaderCell textAlign="center">Done</Table.HeaderCell>
+            <Table.HeaderCell textAlign="center">Task Name</Table.HeaderCell>
+            <Table.HeaderCell textAlign="center">Attachments</Table.HeaderCell>
+            <Table.HeaderCell textAlign="center">Due Date</Table.HeaderCell>
+            <Table.HeaderCell textAlign="center">Actions</Table.HeaderCell>
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
+          {this.state.todos.map((todo, pos) => {
+            return (
+              <Table.Row key={todo.todoId}>
+                <Table.Cell textAlign="center" width={1}>
+                  <Popup
+                    content="Mark completed"
+                    trigger={
+                      <Checkbox
+                        onChange={() => this.onTodoCheck(pos)}
+                        checked={todo.done}
+                      />
+                    }
+                  />
+                </Table.Cell>
+                <Table.Cell width={7}> {todo.name}</Table.Cell>
+                <Table.Cell width={3}>
+                  {" "}
+                  {todo.attachmentUrl && (
+                    <Image size="tiny" src={todo.attachmentUrl} />
+                  )}
+                </Table.Cell>
+                <Table.Cell width={2}> {todo.dueDate}</Table.Cell>
+                <Table.Cell width={3} textAlign="center">
+                  {" "}
+                  {todo.attachmentUrl && (
+                    <Popup
+                      content="Download attachment"
+                      trigger={
+                        <Button
+                          icon
+                          color="green"
+                          onClick={() => this.onDownloadAttachment(todo.todoId)}
+                        >
+                          <Icon name="download" />
+                        </Button>
+                      }
+                    />
+                  )}
+                  {todo.attachmentUrl && (
+                    <Popup
+                      content="Remove attachment"
+                      trigger={
+                        <Button
+                          icon
+                          color="orange"
+                          onClick={() =>
+                            this.onRemoveAttachmentButtonClick(todo)
+                          }
+                        >
+                          <Icon name="unlinkify" />
+                        </Button>
+                      }
+                    />
+                  )}
+                  <Popup
+                    content="Update attachment"
+                    trigger={
+                      <Button
+                        icon
+                        color="blue"
+                        onClick={() => this.onEditButtonClick(todo.todoId)}
+                      >
+                        <Icon name="pencil" />
+                      </Button>
+                    }
+                  />
+                  <Popup
+                    content="Delete"
+                    trigger={
+                      <Button
+                        icon
+                        color="red"
+                        onClick={() => this.onTodoDelete(todo)}
+                      >
+                        <Icon name="delete" />
+                      </Button>
+                    }
+                  />
+                </Table.Cell>
+              </Table.Row>
+            );
+          })}
+        </Table.Body>
+      </Table>
+    );
   }
 
   calculateDueDate(): string {

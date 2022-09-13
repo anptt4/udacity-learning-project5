@@ -97,3 +97,25 @@ export async function generateUploadUrl(attachmentId: string): Promise<string> {
 
   return uploadUrl
 }
+
+export async function createAttachmentDownloadedUrl(attachmentId: string): Promise<string> {
+  logger.info(`create downloaded URL for attachment ${attachmentId}`)
+
+  const downloadedUrl = await todosStorage.createAttachmentDownloadedUrl(attachmentId)
+
+  return downloadedUrl
+}
+
+export async function removeAttachment(attachmentId: string): Promise<void> {
+  logger.info(`create downloaded URL for attachment ${attachmentId}`)
+
+  const removeAttachment = await todosStorage.removeAttachment(attachmentId)
+
+  return removeAttachment
+}
+
+export async function updateTodoRemoveAttachmenttachmentUrl(userId: string, todoId: string, attachmentUrl: string) {
+  logger.info(`update todo remove attachment URL`)
+
+  await todosAccess.updateAttachmentUrl(userId, todoId, attachmentUrl)
+}

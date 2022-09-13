@@ -4,6 +4,7 @@ import { CreateTodoRequest } from '../types/CreateTodoRequest';
 import Axios from 'axios'
 import { UpdateTodoRequest } from '../types/UpdateTodoRequest';
 
+const FileDownload = require('js-file-download')
 export async function getTodos(idToken: string): Promise<Todo[]> {
   console.log('Fetching todos')
 
@@ -43,6 +44,25 @@ export async function patchTodo(
   })
 }
 
+export async function patchTodoAttachment(
+  idToken: string,
+  todoId: string,
+  s3Key: string
+): Promise<void> {
+  await Axios.put(
+    `${apiEndpoint}/todos/${todoId}/attachment`,
+    {
+      s3Key
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
+    }
+  );
+}
+
 export async function deleteTodo(
   idToken: string,
   todoId: string
@@ -53,6 +73,21 @@ export async function deleteTodo(
       'Authorization': `Bearer ${idToken}`
     }
   })
+}
+
+export async function removeAttachment(
+  idToken: string,
+  todoId: string,
+  s3Key: string
+) {
+  await Axios.post(`${apiEndpoint}/todos/delete-attachment`, {
+    todoId, s3Key
+  }, {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`,
+    },
+  });
 }
 
 export async function getUploadUrl(
@@ -68,6 +103,35 @@ export async function getUploadUrl(
   return response.data.uploadUrl
 }
 
+export async function getDownloadUrl(
+  idToken: string,
+  s3Key: string
+): Promise<string> {
+  const response = await Axios.post(
+    `${apiEndpoint}/todos/download-attachment`, {
+      s3Key
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
+    }
+  );
+  return response.data.downloadUrl;
+}
+
 export async function uploadFile(uploadUrl: string, file: Buffer): Promise<void> {
   await Axios.put(uploadUrl, file)
+}
+
+export function download(url: string, filename: string) {
+  // url="/"+url
+  Axios({
+    url,
+    method: 'GET',
+    responseType: 'blob',
+  }).then((response) => {
+      FileDownload(response.data, filename+".png");
+  });
 }
