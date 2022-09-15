@@ -1,17 +1,17 @@
-service: serverless-todo-app-anptt4
+service: serverless-invoice-app-pr5-anptt4
 
 org: anptt4
-app: serverless-todo-app-anptt4
+app: serverless-invoice-app-pr5-anptt4
 
 plugins:
   - serverless-webpack
+  - serverless-reqvalidator-plugin
   - serverless-iam-roles-per-function
   - serverless-plugin-tracing
 
 provider:
   name: aws
   runtime: nodejs12.x
-  lambdaHashingVersion: "20201221"
 
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'us-east-1'}
@@ -20,17 +20,25 @@ provider:
     lambda: true
     apiGateway: true
 
-  # Use these variables in the functions and resouorces section below. For example,
-  # ${self:provider.environment.ATTACHMENTS_S3_BUCKET}
   environment:
-    TODOS_TABLE: Todos-${self:provider.stage}
-    TODOS_CREATED_AT_INDEX: CreatedAtIndex
-    ATTACHMENTS_S3_BUCKET: serverless-c4-anptt4-todo-images-${self:provider.stage}
+    INVOICES_TABLE: Invoice-${self:provider.stage}
+    INVOICES_CREATED_AT_INDEX: CreatedAtIndex
+    ATTACHMENT_S3_BUCKET: serverless-c7-anptt4-invoice-images-${self:provider.stage}
     SIGNED_URL_EXPIRATION: 300
 
   logs:
     # Enable API Gateway logs
     restApi: true
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - xray:PutTelemetryRecords
+            - xray:PutTraceSegments
+          Resource: "*"
+
 
 functions:
   Auth:
@@ -43,21 +51,19 @@ functions:
         Resource:
           - "*"
 
-  # TODO: Configure this function -
-  # Provide iamRoleStatements property for performing Actions on DynamoDB
-  GetTodos:
-    handler: src/lambda/http/getTodos.handler
+  GetInvoices:
+    handler: src/lambda/http/getInvoices.handler
     events:
       - http:
           method: get
-          path: todos
+          path: invoices
           cors: true
           authorizer: Auth
     iamRoleStatements:
       - Effect: Allow
         Action:
           - dynamodb:Query
-        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.INVOICES_TABLE}
       - Effect: "Allow"
         Action:
           - "xray:PutTraceSegments"
@@ -65,159 +71,105 @@ functions:
         Resource:
           - "*"
 
-  # Provide iamRoleStatements property. Decide the Actions and AWS Resource.
-  # To refer to an AWS resource defined in the "Resources" section, you can use "Resource: !GetAtt <resource-name>.Arn"
-  # To validate incoming HTTP requests, we have provided the request schemas in function definition below.
-  CreateTodo:
-    handler: src/lambda/http/createTodo.handler
+  CreateInvoice:
+    handler: src/lambda/http/createInvoice.handler
     events:
       - http:
           method: post
-          path: todos
+          path: invoices
           cors: true
           authorizer: Auth
           request:
             schemas:
-              application/json: ${file(./models/create-todo-model.json)}
+              application/json: ${file(models/create-invoice-model.json)}
     iamRoleStatements:
       - Effect: Allow
         Action:
           - dynamodb:PutItem
-        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.INVOICES_TABLE}
       - Effect: "Allow"
         Action:
           - "xray:PutTraceSegments"
           - "xray:PutTelemetryRecords"
         Resource:
           - "*"
+      - Effect: Allow
+        Action:
+          - s3:PutObject
+          - s3:GetObject
+        Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENT_S3_BUCKET}/*
 
-  # Provide property for setting up CORS, Authorizer, iamRoleStatements, and request schemas
-  UpdateTodo:
-    handler: src/lambda/http/updateTodo.handler
+  UpdateInvoice:
+    handler: src/lambda/http/updateInvoice.handler
     events:
       - http:
-          method: patch
-          path: todos/{todoId}
+          method: put
+          path: invoices/{invoiceId}
           cors: true
           authorizer: Auth
-          request:
-            schemas:
-              application/json: ${file(./models/update-todo-model.json)}
     iamRoleStatements:
       - Effect: Allow
         Action:
           - dynamodb:UpdateItem
           - dynamodb:GetItem
 
-        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.INVOICES_TABLE}
       - Effect: "Allow"
         Action:
           - "xray:PutTraceSegments"
           - "xray:PutTelemetryRecords"
         Resource:
           - "*"
+      - Effect: Allow
+        Action:
+          - s3:PutObject
+          - s3:GetObject
+          - s3:DeleteObject
+        Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENT_S3_BUCKET}/*
 
-  # Provide property for setting up CORS, Authorizer, iamRoleStatements
-  DeleteTodo:
-    handler: src/lambda/http/deleteTodo.handler
+  DeleteInvoice:
+    handler: src/lambda/http/deleteInvoice.handler
     events:
       - http:
           method: delete
-          path: todos/{todoId}
+          path: invoices/{invoiceId}
           cors: true
           authorizer: Auth
     iamRoleStatements:
       - Effect: Allow
         Action:
+          - dynamodb:GetItem
           - dynamodb:DeleteItem
-          - dynamodb:GetItem
-
-        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.INVOICES_TABLE}
       - Effect: "Allow"
         Action:
           - "xray:PutTraceSegments"
           - "xray:PutTelemetryRecords"
         Resource:
           - "*"
-
-  # Provide property for setting up CORS, Authorizer, iamRoleStatements
-  GenerateUploadUrl:
-    handler: src/lambda/http/generateUploadUrl.handler
+  FindInvoice:
+    handler: src/lambda/http/findInvoiceByName.handler
     events:
       - http:
-          method: post
-          path: todos/{todoId}/attachment
+          method: get
           cors: true
           authorizer: Auth
+          path: invoices/search
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - s3:PutObject
-          - s3:GetObject
-        Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENTS_S3_BUCKET}/*
-      - Effect: Allow
-        Action:
-          - dynamodb:UpdateItem
-          - dynamodb:GetItem
-
-        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
+          - dynamodb:Query
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.INVOICES_TABLE}
       - Effect: "Allow"
         Action:
           - "xray:PutTraceSegments"
           - "xray:PutTelemetryRecords"
         Resource:
           - "*"
-
-  GenerateDownUrl:
-    handler: src/lambda/http/generateDownloadUrl.handler
-    events:
-      - http:
-          method: post
-          path: todos/download-attachment
-          cors: true
-          authorizer: Auth
-          reqValidatorName: onlyBody
-          documentation:
-            summary: Generate download url
-            description: Generate download url
-            requestModels:
-              application/json: S3KeyRequest
-    iamRoleStatements:
-      - Effect: Allow
-        Action:
-          - s3:PutObject
-          - s3:GetObject
-        Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENTS_S3_BUCKET}/*
-
-  RemoveTodoAttachment:
-    handler: src/lambda/http/removeAttachment.handler
-    events:
-      - http:
-          method: post
-          path: todos/delete-attachment
-          cors: true
-          authorizer: Auth
-          reqValidatorName: onlyBody
-          documentation:
-            summary: Remove todo attachment
-            description: Remove todo attachment
-            requestModels:
-              application/json: TodoAttachmentRequest
-    iamRoleStatements:
-      - Effect: Allow
-        Action:
-          - dynamodb:UpdateItem
-        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
-      - Effect: Allow
-        Action:
-          - s3:DeleteObject
-          - s3:GetObject
-        Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENTS_S3_BUCKET}/*
 
 resources:
   Resources:
     # Add necessary AWS resources. You will need at least the following AWS resources
-    # Feel free to change the names as you like.
     GatewayResponseDefault4XX:
       Type: AWS::ApiGateway::GatewayResponse
       Properties:
@@ -227,27 +179,28 @@ resources:
           gatewayresponse.header.Access-Control-Allow-Methods: "'GET,OPTIONS,POST'"
         ResponseType: DEFAULT_4XX
         RestApiId:
-          Ref: ApiGatewayRestApi
-
-    TodosTable:
+          Ref: ApiGatewayRestApi #TODO check later
+    
+    # TODO: Create a DynamoDB table with local secondary index and a composite key
+    InvoicesTable:
       Type: AWS::DynamoDB::Table
       Properties:
         AttributeDefinitions:
-          - AttributeName: todoId
-            AttributeType: S
           - AttributeName: userId
             AttributeType: S
-          - AttributeName: createdAt
+          - AttributeName: invoiceId
             AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S  
         KeySchema:
           - AttributeName: userId
             KeyType: HASH
-          - AttributeName: todoId
+          - AttributeName: invoiceId
             KeyType: RANGE
         BillingMode: PAY_PER_REQUEST
-        TableName: ${self:provider.environment.TODOS_TABLE}
-        GlobalSecondaryIndexes:
-          - IndexName: ${self:provider.environment.TODOS_CREATED_AT_INDEX}
+        TableName: ${self:provider.environment.INVOICES_TABLE}
+        LocalSecondaryIndexes:
+          - IndexName: ${self:provider.environment.INVOICES_CREATED_AT_INDEX}
             KeySchema:
               - AttributeName: userId
                 KeyType: HASH
@@ -256,27 +209,30 @@ resources:
             Projection:
               ProjectionType: ALL
 
+    # TODO: Complete the bucket properties below. 
     # Do not forget to add the CorsConfiguration propoerty
     AttachmentsBucket:
       Type: AWS::S3::Bucket
       Properties:
-        BucketName: ${self:provider.environment.ATTACHMENTS_S3_BUCKET}
+        BucketName: ${self:provider.environment.ATTACHMENT_S3_BUCKET}
         CorsConfiguration:
           CorsRules:
-            - AllowedOrigins:
-                - "*"
+            -
+              AllowedOrigins:
+                - '*'
               AllowedHeaders:
-                - "*"
+                - '*'
               AllowedMethods:
                 - GET
                 - PUT
                 - POST
                 - DELETE
                 - HEAD
-              MaxAge: 3000
+              MaxAge: 3000  
 
+    # TODO: Complete the policy below and attach it to the bucket defined above
     # For cross referencing the name of the bucket, use "!Ref AttachmentsBucket"
-    AttachmentsBucketPolicy:
+    BucketPolicy:
       Type: AWS::S3::BucketPolicy
       Properties:
         PolicyDocument:
@@ -285,7 +241,7 @@ resources:
           Statement:
             - Sid: PublicReadForGetBucketObjects
               Effect: Allow
-              Principal: "*"
-              Action: "s3:GetObject"
-              Resource: "arn:aws:s3:::${self:provider.environment.ATTACHMENTS_S3_BUCKET}/*"
-        Bucket: !Ref AttachmentsBucket
+              Principal: '*'
+              Action: 's3:GetObject'
+              Resource: 'arn:aws:s3:::${self:provider.environment.ATTACHMENT_S3_BUCKET}/*'
+        Bucket: !Ref AttachmentsBucket  
